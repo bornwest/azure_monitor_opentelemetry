@@ -44,6 +44,7 @@ telemetry.
 | `managed_identity_client_id:` | `nil` | Client ID of a user-assigned identity; omit for system-assigned. |
 | `sampling_ratio:` | `ENV["OTEL_TRACES_SAMPLER_ARG"]`, else `1.0` | Fraction of traces to keep. |
 | `untraced_paths:` | `["/up"]` | Paths not to trace: exact, or prefixes when they end in `/` (`"/assets/"`). |
+| `untraced_jobs:` | `[]` | Job class names whose runs aren't traced, such as a recurring maintenance job that would otherwise dominate telemetry. The jobs still run. |
 | `instrumentation:` | `{}` | Per-instrumentation options merged over the defaults, keyed by class name as OpenTelemetry's `use_all` takes them. |
 
 A block receives the OpenTelemetry SDK configurator, for anything else, such as extra span
@@ -58,6 +59,8 @@ processors or resource attributes.
 - **SQL literals are obfuscated** for PostgreSQL and MySQL (`WHERE email = ?`), since they can
   hold personal or financial data.
 - **Jobs are named by class** (`InvoiceJob process`), so each job gets its own row in Performance.
+- **Every dependency and exception is listed under its request's name**, including those exported
+  while a long request or job is still running.
 - **Spans are flushed at exit**, so a deploy or restart doesn't lose the last few seconds.
 - When `sampling_ratio` is below 1, sampled telemetry carries the rate, so Application Insights
   scales its request and dependency counts back up.

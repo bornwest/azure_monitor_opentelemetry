@@ -19,6 +19,7 @@ require_relative "azure_monitor_opentelemetry/converter"
 require_relative "azure_monitor_opentelemetry/transport"
 require_relative "azure_monitor_opentelemetry/span_exporter"
 require_relative "azure_monitor_opentelemetry/entry_point_sampler"
+require_relative "azure_monitor_opentelemetry/running_requests"
 
 # Azure Monitor (Application Insights) APM on OpenTelemetry. In a Rails initializer:
 #
@@ -33,21 +34,24 @@ module AzureMonitorOpenTelemetry
   # Returns false, configuring nothing, when there's no connection string or the SDK is disabled.
   #
   # untraced_paths: exact paths, or prefixes when they end in "/" ("/assets/").
+  # untraced_jobs: job class names whose runs aren't traced, such as a chatty recurring job.
   # instrumentation: per-instrumentation options merged over the defaults, as use_all takes them.
   # The block receives the OpenTelemetry SDK configurator, for anything else.
   def self.configure(service_name:, connection_string: ENV.fetch("APPLICATIONINSIGHTS_CONNECTION_STRING", nil),
                      managed_identity: ManagedIdentity.enabled?, managed_identity_client_id: nil,
                      sampling_ratio: Float(ENV.fetch("OTEL_TRACES_SAMPLER_ARG", "1")),
-                     untraced_paths: DEFAULT_UNTRACED_PATHS, instrumentation: {})
+                     untraced_paths: DEFAULT_UNTRACED_PATHS, untraced_jobs: [], instrumentation: {})
     return false if connection_string.to_s.empty?
 
-    exporter = SpanExporter.new(connection_string:, managed_identity:, managed_identity_client_id:)
-    sampler = EntryPointSampler.new(sampling_ratio)
+    running_requests = RunningRequests.new
+    exporter = SpanExporter.new(connection_string:, managed_identity:, managed_identity_client_id:, running_requests:)
+    sampler = EntryPointSampler.new(sampling_ratio, untraced_jobs:)
     options = instrumentation_defaults(untraced_paths).merge(instrumentation) { |_, default, custom| default.merge(custom) }
 
     OpenTelemetry::SDK.configure do |c|
       c.service_name = service_name
       c.use_all(options)
+      c.add_span_processor(running_requests)
       c.add_span_processor(OpenTelemetry::SDK::Trace::Export::BatchSpanProcessor.new(exporter))
       yield c if block_given?
     end

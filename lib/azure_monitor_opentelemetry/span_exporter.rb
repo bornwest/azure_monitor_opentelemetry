@@ -13,11 +13,13 @@ module AzureMonitorOpenTelemetry
     MAX_OPERATIONS = 10_000
 
     def initialize(connection_string: ENV.fetch("APPLICATIONINSIGHTS_CONNECTION_STRING", nil),
-                   managed_identity: ManagedIdentity.enabled?, managed_identity_client_id: nil)
+                   managed_identity: ManagedIdentity.enabled?, managed_identity_client_id: nil,
+                   running_requests: nil)
       config = ConnectionString.new(connection_string)
       credential = (ManagedIdentity.new(resource: config.audience, client_id: managed_identity_client_id) if managed_identity)
       @converter = Converter.new(config.instrumentation_key)
       @transport = Transport.new(uri: config.track_uri, credential:)
+      @running_requests = running_requests
       @operations = {}
       @mutex = Mutex.new
       @stopped = false
@@ -27,7 +29,8 @@ module AzureMonitorOpenTelemetry
       return result::FAILURE if @stopped
 
       remember_operations(span_data)
-      envelopes = span_data.flat_map { |span| convert(span) }
+      running = {}
+      envelopes = span_data.flat_map { |span| convert(span, running) }
       return result::SUCCESS if envelopes.empty?
 
       @transport.deliver(envelopes, timeout:)
@@ -57,9 +60,18 @@ module AzureMonitorOpenTelemetry
       end
     end
 
+    # Remembered from an exported request, or read once per batch from one still running.
+    def operation_name(trace_id, running)
+      @mutex.synchronize { @operations[trace_id] } ||
+        running.fetch(trace_id) do
+          request = @running_requests&.[](trace_id)
+          running[trace_id] = request && @converter.request_name(request)
+        end
+    end
+
     # A span that can't be converted is dropped on its own rather than failing the batch.
-    def convert(span)
-      @converter.convert(span, operation_name: @mutex.synchronize { @operations[span.hex_trace_id] })
+    def convert(span, running)
+      @converter.convert(span, operation_name: operation_name(span.hex_trace_id, running))
     rescue StandardError => e
       OpenTelemetry.handle_error(exception: e, message: "AzureMonitorOpenTelemetry: dropped span #{span.name.inspect}")
       []

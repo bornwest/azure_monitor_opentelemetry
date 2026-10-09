@@ -37,6 +37,19 @@ RSpec.describe AzureMonitorOpenTelemetry::EntryPointSampler do
     expect(spans.map { |span| span.attributes["_MS.sampleRate"] }.uniq).to eq([50.0])
   end
 
+  it "doesn't trace runs of untraced jobs, by job class" do
+    sampler = described_class.new(1.0, untraced_jobs: ["SweepJob"])
+    spans = spans_with(sampler) do |tracer|
+      [%w[SweepJob sweep], %w[InvoiceJob invoice]].each do |job, query|
+        tracer.in_span("#{job} process", kind: :consumer, attributes: { "code.namespace" => job }) do
+          tracer.in_span(query, kind: :client) { nil }
+        end
+      end
+    end
+
+    expect(spans.map(&:name)).to eq(["invoice", "InvoiceJob process"])
+  end
+
   it "rejects a ratio outside 0..1" do
     expect { described_class.new(5) }.to raise_error(ArgumentError, /between 0 and 1/)
   end

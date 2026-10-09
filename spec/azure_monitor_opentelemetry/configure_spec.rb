@@ -35,6 +35,19 @@ RSpec.describe AzureMonitorOpenTelemetry do
     expect(described_class).to have_received(:at_exit)
   end
 
+  it "skips untraced jobs" do
+    sent = stub_http(http_response(200))
+    described_class.configure(service_name: "app", connection_string:, managed_identity: false,
+                              untraced_jobs: ["SweepJob"])
+    tracer = OpenTelemetry.tracer_provider.tracer("spec")
+    tracer.in_span("SweepJob process", kind: :consumer, attributes: { "code.namespace" => "SweepJob" }) { nil }
+    tracer.in_span("InvoiceJob process", kind: :consumer, attributes: { "code.namespace" => "InvoiceJob" }) { nil }
+    OpenTelemetry.tracer_provider.force_flush
+
+    expect(JSON.parse(sent.last[:request].body).map { |e| e.dig("data", "baseData", "name") })
+      .to eq(["InvoiceJob process"])
+  end
+
   it "doesn't trace Always On pings or the given paths" do
     untraced = described_class.send(:untraced_request, %w[/up /assets/])
 

@@ -88,6 +88,26 @@ RSpec.describe AzureMonitorOpenTelemetry::SpanExporter do
     expect(sent.first[:request]["Authorization"]).to be_nil
   end
 
+  it "names spans exported while their request is still running" do
+    sent = stub_http(*Array.new(3) { http_response(200) })
+    running = AzureMonitorOpenTelemetry::RunningRequests.new
+    exporter = described_class.new(connection_string:, managed_identity: false, running_requests: running)
+    provider = OpenTelemetry::SDK::Trace::TracerProvider.new
+    provider.add_span_processor(running)
+    provider.add_span_processor(OpenTelemetry::SDK::Trace::Export::SimpleSpanProcessor.new(exporter))
+    tracer = provider.tracer("spec")
+
+    tracer.in_span("SweepJob process", kind: :consumer) do
+      2.times { |i| tracer.in_span("query #{i}", kind: :client) { nil } }
+    end
+    names = sent.flat_map { |s| JSON.parse(s[:request].body) }.to_h do |e|
+      [e.dig("data", "baseData", "name"), e.dig("tags", "ai.operation.name")]
+    end
+
+    expect(names).to eq("query 0" => "SweepJob process", "query 1" => "SweepJob process",
+                        "SweepJob process" => "SweepJob process")
+  end
+
   it "refuses to export after shutdown" do
     exporter = described_class.new(connection_string:, managed_identity: false)
     exporter.shutdown
