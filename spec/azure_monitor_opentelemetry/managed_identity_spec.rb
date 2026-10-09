@@ -20,6 +20,17 @@ RSpec.describe AzureMonitorOpenTelemetry::ManagedIdentity do
     expect(described_class.available?).to be(true)
   end
 
+  it "lets APPLICATIONINSIGHTS_AUTH force either auth mode" do
+    stub_const("ENV", { "IDENTITY_ENDPOINT" => "http://127.0.0.1:41000/msi/token", "IDENTITY_HEADER" => "h" })
+    expect(described_class.enabled?).to be(true)
+    expect(described_class.enabled?("connection_string")).to be(false)
+    expect(described_class.enabled?(" Managed_Identity ")).to be(true)
+
+    stub_const("ENV", { "APPLICATIONINSIGHTS_AUTH" => "connection_string", "IDENTITY_ENDPOINT" => "x", "IDENTITY_HEADER" => "h" })
+    expect(described_class.enabled?).to be(false)
+    expect { described_class.enabled?("aad") }.to raise_error(AzureMonitorOpenTelemetry::Error, /managed_identity or connection_string/)
+  end
+
   it "requests a token for the resource, outside any trace" do
     sent = stub_http(token_response("tok-1", Time.now + 3600))
 

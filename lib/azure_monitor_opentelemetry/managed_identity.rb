@@ -8,7 +8,19 @@ module AzureMonitorOpenTelemetry
     DEFAULT_LIFETIME = 3600
     TIMEOUT = 10
 
+    AUTH_MODES = { "managed_identity" => true, "connection_string" => false }.freeze
+
     def self.available? = !ENV["IDENTITY_ENDPOINT"].to_s.empty? && !ENV["IDENTITY_HEADER"].to_s.empty?
+
+    # APPLICATIONINSIGHTS_AUTH forces managed_identity or connection_string; unset, the host's
+    # identity is used when it has one.
+    def self.enabled?(mode = ENV.fetch("APPLICATIONINSIGHTS_AUTH", nil))
+      return available? if mode.to_s.strip.empty?
+
+      AUTH_MODES.fetch(mode.strip.downcase) do
+        raise Error, "APPLICATIONINSIGHTS_AUTH must be managed_identity or connection_string, got #{mode.inspect}"
+      end
+    end
 
     # client_id selects a user-assigned identity; omit it for the system-assigned one.
     def initialize(resource:, client_id: nil, endpoint: ENV.fetch("IDENTITY_ENDPOINT", nil),

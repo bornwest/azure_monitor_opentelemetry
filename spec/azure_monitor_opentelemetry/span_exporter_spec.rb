@@ -77,6 +77,17 @@ RSpec.describe AzureMonitorOpenTelemetry::SpanExporter do
     expect(names).to eq("SELECT app" => "GET /orders", "GET /orders" => "GET /orders", "late query" => "GET /orders")
   end
 
+  it "uses the connection string on a host with an identity when APPLICATIONINSIGHTS_AUTH says so" do
+    sent = stub_http(http_response(200))
+    stub_const("ENV", ENV.to_h.merge("IDENTITY_ENDPOINT" => "http://127.0.0.1:41000/msi/token",
+                                      "IDENTITY_HEADER" => "secret-header",
+                                      "APPLICATIONINSIGHTS_AUTH" => "connection_string"))
+
+    expect(described_class.new(connection_string:).export(spans)).to eq(export::SUCCESS)
+    expect(sent.size).to eq(1)
+    expect(sent.first[:request]["Authorization"]).to be_nil
+  end
+
   it "refuses to export after shutdown" do
     exporter = described_class.new(connection_string:, managed_identity: false)
     exporter.shutdown

@@ -40,7 +40,7 @@ telemetry.
 |---|---|---|
 | `service_name:` | | Required. Becomes the cloud role, which the application map and role filters use. |
 | `connection_string:` | `ENV["APPLICATIONINSIGHTS_CONNECTION_STRING"]` | Supplies the instrumentation key and regional ingestion endpoint (`IngestionEndpoint`, or `EndpointSuffix` and `Location` for sovereign clouds). The key falls back to `APPINSIGHTS_INSTRUMENTATIONKEY`. |
-| `managed_identity:` | `true` when `IDENTITY_ENDPOINT` and `IDENTITY_HEADER` are set | Authenticate with the host's managed identity. |
+| `managed_identity:` | From `APPLICATIONINSIGHTS_AUTH`, else `true` when `IDENTITY_ENDPOINT` and `IDENTITY_HEADER` are set | Authenticate with the host's managed identity. |
 | `managed_identity_client_id:` | `nil` | Client ID of a user-assigned identity; omit for system-assigned. |
 | `sampling_ratio:` | `ENV["OTEL_TRACES_SAMPLER_ARG"]`, else `1.0` | Fraction of traces to keep. |
 | `untraced_paths:` | `["/up"]` | Paths not to trace: exact, or prefixes when they end in `/` (`"/assets/"`). |
@@ -102,7 +102,16 @@ The exporter chooses automatically:
   connection string authenticates on its own. This requires local authentication to be enabled on
   the Application Insights resource (it is by default).
 
-Pass `managed_identity: false` to force connection-string auth on a host that has an identity.
+To choose without a code change, set `APPLICATIONINSIGHTS_AUTH`:
+
+| Value | Auth |
+|---|---|
+| unset | Managed identity when the host has one, otherwise the connection string |
+| `connection_string` | The connection string's instrumentation key, even on a host with an identity. Useful until the identity is granted Monitoring Metrics Publisher. |
+| `managed_identity` | The host's managed identity; fails at boot when the host has none |
+
+Any other value raises `AzureMonitorOpenTelemetry::Error` at boot. The `managed_identity:` option
+overrides the variable.
 
 ## How spans map
 

@@ -13,7 +13,7 @@ module AzureMonitorOpenTelemetry
     MAX_OPERATIONS = 10_000
 
     def initialize(connection_string: ENV.fetch("APPLICATIONINSIGHTS_CONNECTION_STRING", nil),
-                   managed_identity: ManagedIdentity.available?, managed_identity_client_id: nil)
+                   managed_identity: ManagedIdentity.enabled?, managed_identity_client_id: nil)
       config = ConnectionString.new(connection_string)
       credential = (ManagedIdentity.new(resource: config.audience, client_id: managed_identity_client_id) if managed_identity)
       @converter = Converter.new(config.instrumentation_key)

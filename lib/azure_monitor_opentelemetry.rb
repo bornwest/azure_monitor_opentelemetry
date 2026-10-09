@@ -36,7 +36,7 @@ module AzureMonitorOpenTelemetry
   # instrumentation: per-instrumentation options merged over the defaults, as use_all takes them.
   # The block receives the OpenTelemetry SDK configurator, for anything else.
   def self.configure(service_name:, connection_string: ENV.fetch("APPLICATIONINSIGHTS_CONNECTION_STRING", nil),
-                     managed_identity: ManagedIdentity.available?, managed_identity_client_id: nil,
+                     managed_identity: ManagedIdentity.enabled?, managed_identity_client_id: nil,
                      sampling_ratio: Float(ENV.fetch("OTEL_TRACES_SAMPLER_ARG", "1")),
                      untraced_paths: DEFAULT_UNTRACED_PATHS, instrumentation: {})
     return false if connection_string.to_s.empty?
