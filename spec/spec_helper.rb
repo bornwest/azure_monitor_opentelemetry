@@ -5,7 +5,7 @@ OpenTelemetry.logger = Logger.new(File::NULL)
 
 module SpanHelpers
   RESOURCE = OpenTelemetry::SDK::Resources::Resource.create(
-    "service.name" => "atlas-web", "service.instance.id" => "instance-1", "service.version" => "1.2.3",
+    "service.name" => "my-app", "service.instance.id" => "instance-1", "service.version" => "1.2.3",
   )
 
   # Runs the block with a tracer and returns the spans it finished, as exporters receive them.

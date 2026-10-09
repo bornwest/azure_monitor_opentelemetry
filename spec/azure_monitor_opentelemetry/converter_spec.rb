@@ -8,11 +8,11 @@ RSpec.describe AzureMonitorOpenTelemetry::Converter do
 
   describe "a server span" do
     let(:attributes) do
-      { "http.method" => "GET", "http.scheme" => "https", "http.host" => "atlas.example.com",
-        "http.target" => "/agent/sessions/7?tab=1", "http.route" => "/agent/sessions/:id",
+      { "http.method" => "GET", "http.scheme" => "https", "http.host" => "app.example.com",
+        "http.target" => "/orders/7?tab=1", "http.route" => "/orders/:id",
         "http.status_code" => 200, "http.user_agent" => "Mozilla/5.0", "tenant" => "acme" }
     end
-    let(:span) { finished_span("GET /agent/sessions/:id", kind: :server, attributes:) }
+    let(:span) { finished_span("GET /orders/:id", kind: :server, attributes:) }
     let(:envelope) { convert(span).first }
 
     it "becomes a request named by route, with the full URL and status" do
@@ -20,8 +20,8 @@ RSpec.describe AzureMonitorOpenTelemetry::Converter do
                                   "iKey" => "11111111-2222-3333-4444-555555555555")
       expect(envelope.dig("data", "baseType")).to eq("RequestData")
       expect(data(envelope)).to include(
-        "ver" => 2, "id" => span.hex_span_id, "name" => "GET /agent/sessions/:id",
-        "url" => "https://atlas.example.com/agent/sessions/7?tab=1", "responseCode" => "200", "success" => true,
+        "ver" => 2, "id" => span.hex_span_id, "name" => "GET /orders/:id",
+        "url" => "https://app.example.com/orders/7?tab=1", "responseCode" => "200", "success" => true,
       )
       expect(data(envelope)["duration"]).to match(/\A\d+\.\d{2}:\d{2}:\d{2}\.\d{3}\z/)
       expect(envelope["time"]).to match(/\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z\z/)
@@ -29,8 +29,8 @@ RSpec.describe AzureMonitorOpenTelemetry::Converter do
 
     it "carries trace, role, and user agent context tags, with no parent at the root" do
       expect(envelope["tags"]).to include(
-        "ai.operation.id" => span.hex_trace_id, "ai.operation.name" => "GET /agent/sessions/:id",
-        "ai.cloud.role" => "atlas-web", "ai.cloud.roleInstance" => "instance-1",
+        "ai.operation.id" => span.hex_trace_id, "ai.operation.name" => "GET /orders/:id",
+        "ai.cloud.role" => "my-app", "ai.cloud.roleInstance" => "instance-1",
         "ai.application.ver" => "1.2.3", "ai.user.userAgent" => "Mozilla/5.0",
       )
       expect(envelope["tags"]).not_to have_key("ai.operation.parentId")
@@ -68,29 +68,29 @@ RSpec.describe AzureMonitorOpenTelemetry::Converter do
     end
 
     it "maps a Postgres query to a database dependency" do
-      query, request = child("SELECT atlas", "db.system" => "postgresql", "db.name" => "atlas_production",
+      query, request = child("SELECT app", "db.system" => "postgresql", "db.name" => "app_production",
                                              "db.statement" => "SELECT ? FROM users", "net.peer.name" => "pg.internal",
                                              "net.peer.port" => 5432)
       envelope = convert(query).first
 
       expect(envelope["name"]).to eq("Microsoft.ApplicationInsights.RemoteDependency")
-      expect(data(envelope)).to include("type" => "postgresql", "target" => "pg.internal|atlas_production",
-                                        "data" => "SELECT ? FROM users", "name" => "SELECT atlas", "success" => true)
+      expect(data(envelope)).to include("type" => "postgresql", "target" => "pg.internal|app_production",
+                                        "data" => "SELECT ? FROM users", "name" => "SELECT app", "success" => true)
       expect(envelope["tags"]).to include("ai.operation.id" => request.hex_trace_id,
                                           "ai.operation.parentId" => request.hex_span_id)
     end
 
     it "lists the dependency under its request's operation, keeping its own name" do
-      query, = child("SELECT atlas", "db.system" => "postgresql", "db.statement" => "SELECT ?")
-      envelope = convert(query, operation_name: "GET /agent/sessions/:id").first
+      query, = child("SELECT app", "db.system" => "postgresql", "db.statement" => "SELECT ?")
+      envelope = convert(query, operation_name: "GET /orders/:id").first
 
-      expect(envelope["tags"]["ai.operation.name"]).to eq("GET /agent/sessions/:id")
-      expect(data(envelope)["name"]).to eq("SELECT atlas")
+      expect(envelope["tags"]["ai.operation.name"]).to eq("GET /orders/:id")
+      expect(data(envelope)["name"]).to eq("SELECT app")
       expect(convert(query).first["tags"]).not_to have_key("ai.operation.name")
     end
 
     it "maps SQL Server queries to the SQL type, targeted by system when there is no server" do
-      query, = child("lake.query", "db.system" => "mssql", "db.statement" => "SELECT TOP ? x FROM t")
+      query, = child("report.query", "db.system" => "mssql", "db.statement" => "SELECT TOP ? x FROM t")
 
       expect(data(convert(query).first)).to include("type" => "SQL", "target" => "mssql")
     end
@@ -109,11 +109,11 @@ RSpec.describe AzureMonitorOpenTelemetry::Converter do
 
     it "rebuilds the URL of a Net::HTTP call and drops the default port from the target" do
       call, = child("HTTP GET", "http.method" => "GET", "http.scheme" => "https",
-                                "net.peer.name" => "onelake.example.com", "net.peer.port" => 443,
+                                "net.peer.name" => "files.example.com", "net.peer.port" => 443,
                                 "http.target" => "/ws/files/a.pdf", "http.status_code" => 200)
 
       expect(data(convert(call).first)).to include(
-        "data" => "https://onelake.example.com:443/ws/files/a.pdf", "target" => "onelake.example.com",
+        "data" => "https://files.example.com:443/ws/files/a.pdf", "target" => "files.example.com",
         "name" => "GET /ws/files/a.pdf", "resultCode" => "200",
       )
     end

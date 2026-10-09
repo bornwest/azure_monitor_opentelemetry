@@ -62,8 +62,8 @@ RSpec.describe AzureMonitorOpenTelemetry::SpanExporter do
     exporter = described_class.new(connection_string:, managed_identity: false)
     query = nil
     trace = finished_spans do |tracer|
-      tracer.in_span("HTTP GET", kind: :server, attributes: { "http.method" => "GET", "http.route" => "/agent" }) do
-        tracer.in_span("SELECT atlas", kind: :client, attributes: { "db.system" => "postgresql" }) { nil }
+      tracer.in_span("HTTP GET", kind: :server, attributes: { "http.method" => "GET", "http.route" => "/orders" }) do
+        tracer.in_span("SELECT app", kind: :client, attributes: { "db.system" => "postgresql" }) { nil }
         query = tracer.in_span("late query", kind: :client) { |span| span }
       end
     end
@@ -74,7 +74,7 @@ RSpec.describe AzureMonitorOpenTelemetry::SpanExporter do
       [e.dig("data", "baseData", "name"), e.dig("tags", "ai.operation.name")]
     end
 
-    expect(names).to eq("SELECT atlas" => "GET /agent", "GET /agent" => "GET /agent", "late query" => "GET /agent")
+    expect(names).to eq("SELECT app" => "GET /orders", "GET /orders" => "GET /orders", "late query" => "GET /orders")
   end
 
   it "refuses to export after shutdown" do

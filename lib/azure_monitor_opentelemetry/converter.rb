@@ -41,7 +41,7 @@ module AzureMonitorOpenTelemetry
 
     def request?(span) = %i[server consumer].include?(span.kind)
 
-    # "GET /agent/sessions/:id" for HTTP, otherwise the span name ("InvoiceJob process").
+    # "GET /orders/:id" for HTTP, otherwise the span name ("InvoiceJob process").
     def request_name(span)
       attrs = span.attributes || {}
       method = http_method(attrs)

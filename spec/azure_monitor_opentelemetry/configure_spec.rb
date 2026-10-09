@@ -42,7 +42,7 @@ RSpec.describe AzureMonitorOpenTelemetry do
     expect(untraced.call("PATH_INFO" => "/up")).to be(true)
     expect(untraced.call("PATH_INFO" => "/assets/app-1.css")).to be(true)
     expect(untraced.call("PATH_INFO" => "/upload")).to be(false)
-    expect(untraced.call("PATH_INFO" => "/agent", "HTTP_USER_AGENT" => "Mozilla/5.0")).to be(false)
+    expect(untraced.call("PATH_INFO" => "/orders", "HTTP_USER_AGENT" => "Mozilla/5.0")).to be(false)
   end
 
   it "merges instrumentation options over the defaults" do
