@@ -31,15 +31,31 @@ module AzureMonitorOpenTelemetry
 
     # Every string is made valid UTF-8, so one span with binary or mis-encoded data (a raw SQL
     # literal, a header) can't make the whole batch fail to serialize.
-    def convert(span) = utf8([span_envelope(span), *event_envelopes(span)])
+    #
+    # operation_name is the name of the request the span belongs to; Application Insights lists
+    # dependencies and exceptions under it. A request span names its own operation.
+    def convert(span, operation_name: nil)
+      operation_name = request_name(span) if request?(span)
+      utf8([span_envelope(span, operation_name), *event_envelopes(span, operation_name)])
+    end
+
+    def request?(span) = %i[server consumer].include?(span.kind)
+
+    # "GET /agent/sessions/:id" for HTTP, otherwise the span name ("InvoiceJob process").
+    def request_name(span)
+      attrs = span.attributes || {}
+      method = http_method(attrs)
+      path = attrs["http.route"] || url_path(request_url(attrs)) if method
+      (path ? "#{method} #{path}" : span.name).to_s[0, 1024]
+    end
 
     private
 
-    def span_envelope(span)
+    def span_envelope(span, operation_name)
       attrs = span.attributes || {}
-      tags = operation_tags(span, attrs)
+      tags = operation_tags(span, attrs, operation_name)
       tags["ai.operation.parentId"] = span.hex_parent_span_id if parent?(span)
-      request = %i[server consumer].include?(span.kind)
+      request = request?(span)
       data = request ? request_data(span, attrs, tags) : dependency_data(span, attrs, tags)
       data["properties"] = custom_properties(attrs)
       data["properties"]["_MS.links"] = links_json(span.links) if span.links&.any?
@@ -54,18 +70,15 @@ module AzureMonitorOpenTelemetry
     end
 
     def request_data(span, attrs, tags)
-      tags["ai.operation.name"] = span.name
-      data = { "ver" => SCHEMA_VERSION, "id" => span.hex_span_id, "name" => span.name,
+      data = { "ver" => SCHEMA_VERSION, "id" => span.hex_span_id, "name" => tags["ai.operation.name"],
                "duration" => duration(span), "responseCode" => "0", "success" => span.status.ok? }
       location_ip = attrs["client.address"] || attrs["http.client_ip"] || attrs["net.peer.ip"]
       tags["ai.location.ip"] = location_ip.to_s if location_ip
 
-      if (method = http_method(attrs))
+      if http_method(attrs)
         user_agent!(tags, attrs)
         url = request_url(attrs)
         data["url"] = url[0, 2048] unless url.empty?
-        path = attrs["http.route"] || url_path(url)
-        tags["ai.operation.name"] = "#{method} #{path}" if path
         code = status_code(attrs)
         data["responseCode"] = code.to_s
         data["success"] = span.status.ok? && code != 0 && !(400..499).cover?(code)
@@ -74,13 +87,11 @@ module AzureMonitorOpenTelemetry
         data["source"] = (peer ? "#{peer}/#{destination}" : destination.to_s)[0, 1024]
       end
 
-      data["name"] = tags["ai.operation.name"].to_s[0, 1024]
       data["responseCode"] = data["responseCode"][0, 1024]
       data
     end
 
     def dependency_data(span, attrs, tags)
-      tags["ai.operation.name"] = span.name
       data = { "ver" => SCHEMA_VERSION, "id" => span.hex_span_id, "name" => span.name,
                "resultCode" => "0", "duration" => duration(span), "success" => span.status.ok? }
       target = peer_target(attrs)
@@ -95,7 +106,7 @@ module AzureMonitorOpenTelemetry
         data["type"] = "InProc"
       end
 
-      data["name"] = tags["ai.operation.name"].to_s[0, 1024]
+      data["name"] = data["name"].to_s[0, 1024]
       data["resultCode"] = data["resultCode"].to_s[0, 1024]
       data["data"] = data["data"].to_s[0, 8192] if data["data"]
       data["type"] = data["type"].to_s[0, 1024]
@@ -111,7 +122,7 @@ module AzureMonitorOpenTelemetry
         url = dependency_url(attrs)
         data["data"] = url unless url.empty?
         target, path = http_target_and_path(attrs, url)
-        tags["ai.operation.name"] = "#{method} #{path}"
+        data["name"] = "#{method} #{path}"
         data["resultCode"] = status_code(attrs).to_s
       elsif (system = attrs["db.system.name"] || attrs["db.system"])
         data["type"] = db_type(system.to_s)
@@ -131,10 +142,10 @@ module AzureMonitorOpenTelemetry
       target
     end
 
-    def event_envelopes(span)
+    def event_envelopes(span, operation_name)
       Array(span.events).map do |event|
         attrs = event.attributes || {}
-        tags = operation_tags(span, attrs)
+        tags = operation_tags(span, attrs, operation_name)
         tags["ai.operation.parentId"] = span.hex_span_id
         properties = custom_properties(attrs)
         if event.name == "exception"
@@ -162,9 +173,10 @@ module AzureMonitorOpenTelemetry
     end
 
     # Context tags shared by every envelope a span produces.
-    def operation_tags(span, attrs)
+    def operation_tags(span, attrs, operation_name)
       tags = @context_tags.merge(resource_tags(span.resource))
       tags["ai.operation.id"] = span.hex_trace_id
+      tags["ai.operation.name"] = operation_name if operation_name
       span_attrs = span.attributes || {}
       tags["ai.user.authUserId"] = span_attrs["enduser.id"].to_s if span_attrs["enduser.id"]
       tags["ai.user.id"] = span_attrs["enduser.pseudo.id"].to_s if span_attrs["enduser.pseudo.id"]

@@ -3,7 +3,7 @@ require "spec_helper"
 RSpec.describe AzureMonitorOpenTelemetry::Converter do
   subject(:converter) { described_class.new("11111111-2222-3333-4444-555555555555") }
 
-  def convert(span) = converter.convert(span)
+  def convert(span, **) = converter.convert(span, **)
   def data(envelope) = envelope.dig("data", "baseData")
 
   describe "a server span" do
@@ -80,6 +80,15 @@ RSpec.describe AzureMonitorOpenTelemetry::Converter do
                                           "ai.operation.parentId" => request.hex_span_id)
     end
 
+    it "lists the dependency under its request's operation, keeping its own name" do
+      query, = child("SELECT atlas", "db.system" => "postgresql", "db.statement" => "SELECT ?")
+      envelope = convert(query, operation_name: "GET /agent/sessions/:id").first
+
+      expect(envelope["tags"]["ai.operation.name"]).to eq("GET /agent/sessions/:id")
+      expect(data(envelope)["name"]).to eq("SELECT atlas")
+      expect(convert(query).first["tags"]).not_to have_key("ai.operation.name")
+    end
+
     it "maps SQL Server queries to the SQL type, targeted by system when there is no server" do
       query, = child("lake.query", "db.system" => "mssql", "db.statement" => "SELECT TOP ? x FROM t")
 
@@ -150,7 +159,8 @@ RSpec.describe AzureMonitorOpenTelemetry::Converter do
     expect(request["name"]).to eq("Microsoft.ApplicationInsights.Request")
     expect(exception["name"]).to eq("Microsoft.ApplicationInsights.Exception")
     expect(exception["tags"]).to include("ai.operation.id" => span.hex_trace_id,
-                                         "ai.operation.parentId" => span.hex_span_id)
+                                         "ai.operation.parentId" => span.hex_span_id,
+                                         "ai.operation.name" => "GET /")
     details = data(exception)["exceptions"].first
     expect(details).to include("typeName" => "ArgumentError", "message" => "bad input", "hasFullStack" => true)
   end

@@ -57,6 +57,26 @@ RSpec.describe AzureMonitorOpenTelemetry::SpanExporter do
     expect(JSON.parse(sent.last[:request].body).size).to eq(2)
   end
 
+  it "lists every span in a trace under its request's name, across batches" do
+    sent = stub_http(http_response(200), http_response(200))
+    exporter = described_class.new(connection_string:, managed_identity: false)
+    query = nil
+    trace = finished_spans do |tracer|
+      tracer.in_span("HTTP GET", kind: :server, attributes: { "http.method" => "GET", "http.route" => "/agent" }) do
+        tracer.in_span("SELECT atlas", kind: :client, attributes: { "db.system" => "postgresql" }) { nil }
+        query = tracer.in_span("late query", kind: :client) { |span| span }
+      end
+    end
+
+    exporter.export(trace.reject { |span| span.name == "late query" })
+    exporter.export([query.to_span_data])
+    names = sent.flat_map { |s| JSON.parse(s[:request].body) }.to_h do |e|
+      [e.dig("data", "baseData", "name"), e.dig("tags", "ai.operation.name")]
+    end
+
+    expect(names).to eq("SELECT atlas" => "GET /agent", "GET /agent" => "GET /agent", "late query" => "GET /agent")
+  end
+
   it "refuses to export after shutdown" do
     exporter = described_class.new(connection_string:, managed_identity: false)
     exporter.shutdown
